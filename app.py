@@ -33,6 +33,9 @@ X_BEARER_TOKEN = os.getenv("X_BEARER_TOKEN", "")
 X_CLIENT_ID = os.getenv("X_CLIENT_ID", "")
 X_CLIENT_SECRET = os.getenv("X_CLIENT_SECRET", "")
 
+# CORS configuration - comma-separated list of allowed origins
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else ["*"]
+
 # Rate limiting configuration
 RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "100"))
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "900"))  # 15 minutes
@@ -265,7 +268,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -453,6 +456,12 @@ async def oauth_authorize(
     if not state:
         state = secrets.token_urlsafe(32)
     
+    # Generate PKCE code verifier and challenge using S256 method
+    code_verifier = secrets.token_urlsafe(32)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+    
     # Build authorization URL
     auth_url = "https://twitter.com/i/oauth2/authorize"
     params = {
@@ -461,12 +470,16 @@ async def oauth_authorize(
         "redirect_uri": redirect_uri,
         "scope": "tweet.read users.read offline.access",
         "state": state,
-        "code_challenge": secrets.token_urlsafe(32),
-        "code_challenge_method": "plain"
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256"
     }
     
     query_string = urllib.parse.urlencode(params)
-    return {"authorization_url": f"{auth_url}?{query_string}", "state": state}
+    return {
+        "authorization_url": f"{auth_url}?{query_string}",
+        "state": state,
+        "code_verifier": code_verifier
+    }
 
 
 @app.post("/oauth/token")
